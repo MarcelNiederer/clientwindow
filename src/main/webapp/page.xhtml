@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:h="http://java.sun.com/jsf/html"
+      xmlns:ds="http://deltaspike.apache.org/jsf">
+
+  <head>
+    <meta charset="UTF-8" />
+    <title>A page</title>
+    <link rel="stylesheet" href="css/color-brewer.css" />
+    <script src="js/highlight.pack.js"></script>
+    <script>hljs.initHighlightingOnLoad();</script>
+  </head>
+  
+  <body>
+    <ds:windowId />
+    <h1>A page for testing purposes of DeltaSpike CLIENTWINDOW mode</h1>
+    <p>
+      This page contains two forms. <code>&lt;ds:windowId /&gt;</code> is included! Configuration for enabling DeltaSpike CLIENTWINDOW mode done!
+    </p>
+    <p>
+      First form includes a button, which calls a JSF action method.
+    </p>
+    <p>
+      Second form also just includes a button that calls the same JSF action method. But I inserted my small workaround,
+      where a hidden input field solves the problem.
+    </p>
+    
+    Tested on:
+    <ul>
+      <li>TomEE 1.7.1</li>
+      <li>DeltaSpike 1.0.3</li>
+    </ul>
+    
+    <h2>Form no. 1 without a workaround</h2>
+    <h:form>
+      <h:commandButton action="#{Bean.lonelyActionMethod()}" value="Submit and get an error (javax.enterprise.context.ContextNotActiveException)" />
+    </h:form>
+    
+    <h2>Form no. 2 with a workaround</h2>
+    <h:form>
+      Following hidden input field is included:
+      <pre>
+        &lt;input type=&quot;hidden&quot; name=&quot;dspwid&quot; value=&quot;&#35;<h:outputText value="{facesContext.externalContext.requestParameterMap['dswid']}" escape="false" />&quot; /&gt;
+      </pre>
+      <input type="hidden" name="dspwid" value="#{facesContext.externalContext.requestParameterMap['dswid']}" />
+      <h:commandButton action="#{Bean.lonelyActionMethod()}" value="Submit and all is okay" />
+    </h:form>
+    Request completed: #{Bean.checked} <h:outputLink rendered="#{not empty Bean.checked}" value="page.xhtml">reload the page</h:outputLink>
+    
+    <h2>Why?</h2>
+    <p>First there's no <code>windowId</code> recognized in the request from the form. See following codesnippet.</p>
+    <code>DeltaSpikeLifecycleWrapper.execute(FacesContext facesContext)</code> (lines 77 - 85):
+    <pre><code class="java">
+      //TODO broadcastApplicationStartupBroadcaster();
+      broadcastInitializedJsfRequestEvent(facesContext);
+
+      // ClientWindow handling
+      String windowId = clientWindow.getWindowId(facesContext);
+      if (windowId != null)
+      {
+          windowContext.activateWindow(windowId);
+      }
+    </code></pre>
+
+    <hr />
+    <p>The important part in the <code>getWindowId</code>-Method in this scenario is pointet out below. Sure, it's a postback!</p>
+    <code>DefaultClientWindow.getWindowId(FacesContext facesContext)</code> (lines 155 - 160):
+    <pre><code class="java">
+      else if (ClientWindowRenderMode.CLIENTWINDOW.equals(clientWindowRenderMode))
+      {
+          if (facesContext.isPostback())
+          {
+              windowId = getPostBackWindowId(facesContext);
+          }
+    </code></pre>
+    
+    <hr />
+    <p>
+      The <code>getPostBackWindowId</code>-Method searches for a <em>dspwid</em> in the <code>requestParameterMap</code>. When
+      nothing is found then it searches for the <em>javax.faces.ClientWindow</em>.
+    </p>
+    <p>
+      <em>javax.faces.ClientWindow</em> can't be found, because it's a JSF 2.2 thing (I believe) and we rely on JEE 6. <em>dspwid</em>
+      should be found but isn't. In my tests in this clientwindow-project there can't be such a param, because there's nothing attached
+      to the forms action param. In an other project of me there were clientwindow params attached, but only <em>dsrid</em> and <em>dswid</em>.
+      <em>ds<strong>p</strong>wid</em> was never attached in all of my tests!
+    </p>
+    <code>DefaultClientWindow.getPostBackWindowId(FacesContext facesContext)</code> (lines 213 - 220):
+    <pre><code class="java">
+      Map&lt;String, String&gt; requestParams = facesContext.getExternalContext().getRequestParameterMap();
+      String windowId = requestParams.get(DELTASPIKE_WINDOW_ID_POST_PARAM);
+
+      if (windowId == null)
+      {
+          windowId = requestParams.get(JSF_WINDOW_ID_POST_PARAM);
+      }
+      return windowId;
+    </code></pre>
+    
+  </body>
+
+</html>
